@@ -31,8 +31,10 @@
 #include "common/global.hpp"
 #include "common/logger.hpp"
 #include "table/cleanup.hpp"
+#include "rib/service.hpp"
 
 #include <ndn-cxx/lp/tags.hpp>
+#include <ndn-cxx/kite/ack.hpp>
 
 namespace nfd {
 
@@ -287,6 +289,10 @@ Forwarder::onIncomingData(const FaceEndpoint& ingress, const Data& data)
     return;
   }
 
+  // goto incoming KITE acknowledgment pipeline
+  if (data.getContentType() == tlv::ContentType_KiteAck)
+    onIncomingKiteAck(data, pitMatches);
+
   // CS insert
   m_cs.insert(data);
 
@@ -357,6 +363,28 @@ Forwarder::onIncomingData(const FaceEndpoint& ingress, const Data& data)
       }
       // goto outgoing Data pipeline
       this->onOutgoingData(data, FaceEndpoint(*pendingDownstream.first, pendingDownstream.second));
+    }
+  }
+}
+
+void
+Forwarder::onIncomingKiteAck(const Data& data, const pit::DataMatchResult pitMatches)
+{
+  ndn::kite::Ack ack(data);
+  for (const auto& pitEntry : pitMatches) {
+    // should only match one entry, since trace Interest shouldn't have CanBePrefix set
+    NFD_LOG_DEBUG("onIncomingKiteAck processing=" << pitEntry->getName());
+
+    // update RIB by putting each incoming face in the nexthop list
+    for (const pit::InRecord& inRecord : pitEntry->getInRecords()) {
+      if (inRecord.getFace().getScope() != ndn::nfd::FACE_SCOPE_LOCAL && inRecord.getExpiry() > time::steady_clock::now()) {
+        runOnRibIoService([pitEntryWeak = weak_ptr<pit::Entry>{pitEntry}, inFaceId = inRecord.getFace().getId(), data, pa = *ack.getPrefixAnnouncement()] {
+          rib::Service::get().getRibManager().slAnnounce(pa, inFaceId, time::milliseconds(5_min),
+            [] (RibManager::SlAnnounceResult res) {
+              NFD_LOG_DEBUG("Add route via PrefixAnnouncement with result=" << res);
+            });
+        });
+      }
     }
   }
 }

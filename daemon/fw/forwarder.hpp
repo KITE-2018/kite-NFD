@@ -220,6 +220,12 @@ PUBLIC_WITH_TESTS_ELSE_PRIVATE: // pipelines
   VIRTUAL_WITH_TESTS void
   onIncomingData(const FaceEndpoint& ingress, const Data& data);
 
+  /** \brief incoming KITE acknowledgment pipeline
+   */
+  VIRTUAL_WITH_TESTS void
+  onIncomingKiteAck(const Data& data, const pit::DataMatchResult pitMatches);
+
+
   /** \brief Data unsolicited pipeline
    */
   VIRTUAL_WITH_TESTS void
